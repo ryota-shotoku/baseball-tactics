@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>野球スコア＆ランナー管理</title>
+    <style>
+        :root {
+            --bg-color: #222;
+            --field-color: #2e7d32;
+            --line-color: rgba(255, 255, 255, 0.6);
+            --base-color: #fff;
+            --runner-color: #ffeb3b; /* ランナーがいる色 */
+            --text-color: #fff;
+            --accent-color: #f57c00;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 10px;
+            min-height: 100vh;
+        }
+
+        h1 { margin: 10px 0; font-size: 1.5rem; }
+
+        /* --- スコアボード --- */
+        .scoreboard-container {
+            width: 100%;
+            overflow-x: auto;
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            border-collapse: collapse;
+            background-color: #333;
+            border: 2px solid #555;
+        }
+
+        th, td {
+            border: 1px solid #555;
+            padding: 8px;
+            text-align: center;
+            min-width: 30px;
+        }
+
+        th { background-color: #111; color: #aaa; font-size: 0.9rem; }
+        
+        /* チーム名入力欄 */
+        input.team-name {
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-weight: bold;
+            font-size: 1.1rem;
+            width: 100px;
+            text-align: center;
+        }
+        input.team-name:focus { outline: 1px solid var(--accent-color); }
+
+        /* 現在のイニングをハイライト */
+        .active-inning {
+            background-color: #555;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { background-color: #555; }
+            50% { background-color: #777; }
+            100% { background-color: #555; }
+        }
+
+        /* --- グラウンド・ランナー表示 --- */
+        .field-display {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            background-color: var(--field-color);
+            margin: 20px auto;
+            transform: rotate(-45deg); /* ひし形にする */
+            border: 4px solid var(--line-color);
+            border-radius: 10px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+        }
+
+        /* ベース */
+        .base {
+            position: absolute;
+            width: 25px;
+            height: 25px;
+            background-color: var(--base-color);
+            border: 2px solid #ccc;
+            transition: background-color 0.3s;
+        }
+
+        .base.occupied {
+            background-color: var(--runner-color); /* ランナーがいるときの色 */
+            box-shadow: 0 0 10px var(--runner-color);
+        }
+
+        /* ベースの位置（rotate(-45deg)しているので、それに合わせる） */
+        .base-1 { top: 0; right: 0; }   /* 2塁 */
+        .base-2 { top: 0; left: 0; }    /* 3塁 */ /* CSSの配置上、top-leftが3塁に見えるが回転のため調整が必要 */
+        
+        /* 回転後の見た目の位置合わせ
+           Top-Right: 1塁
+           Top-Left: 2塁 
+           Bottom-Left: 3塁
+           Bottom-Right: ホーム
+           ...だとややこしいので、シンプルに配置します。
+        */
+
+        /* CSS座標系：左上が(0,0) */
+        /* 正方形を45度左回転させている
+           上頂点：(Right, Top) -> 1st Base? No. 
+           Let's fix coordinates relative to the rotated square.
+           Right-Top corner of the div is visually the "Right" corner of the diamond (1st base).
+           Top-Left corner is visually "Top" (2nd base).
+           Bottom-Left is "Left" (3rd base).
+           Bottom-Right is "Bottom" (Home).
+        */
+        
+        .base-1st { top: 0; right: 0; } 
+        .base-2nd { top: 0; left: 0; }
+        .base-3rd { bottom: 0; left: 0; }
+        
+        /* ホームベース: 五角形で下向き（キャッチャー方向）に尖らせる */
+        .base-home { 
+            bottom: -8px; 
+            right: -8px; 
+            /* 親要素が-45deg回転しているので、45deg回転させて画面に対して正対させる */
+            transform: rotate(45deg);
+            /* ホームベースの形（下が尖る五角形） */
+            clip-path: polygon(0 0, 100% 0, 100% 50%, 50% 100%, 0 50%);
+            background-color: #fff;
+            border: none;
+        }
+
+        /* アウトカウント表示（フィールドの中央に配置） */
+        .info-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(45deg); /* 文字を水平に戻す */
+            text-align: center;
+            width: 150px;
+        }
+
+        .out-count {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 5px;
+        }
+
+        .lamp {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background-color: #444;
+            border: 1px solid #777;
+        }
+        .lamp.active {
+            background-color: #f44336; /* 赤色 */
+            box-shadow: 0 0 8px #f44336;
+        }
+
+        .inning-text {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        /* --- 操作ボタン --- */
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        button {
+            padding: 15px;
+            font-size: 1rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: opacity 0.2s;
+            color: #fff;
+        }
+        button:active { opacity: 0.7; }
+
+        .btn-hit { background-color: #2196f3; }
+        .btn-base2 { background-color: #1976d2; }
+        .btn-base3 { background-color: #1565c0; }
+        .btn-hr { background-color: #ff9800; grid-column: span 3; }
+        .btn-walk { background-color: #4caf50; }
+        .btn-out { background-color: #f44336; font-size: 1.2rem; }
+        .btn-reset { background-color: #607d8b; margin-top: 20px; width: 100%; max-width: 500px; }
+        .btn-gofwd { background-color: #9c27b0; grid-column: span 3; }
+
+        /* スマホ対応 */
+        @media (max-width: 600px) {
+            .field-display { width: 160px; height: 160px; }
+            button { padding: 12px; font-size: 0.9rem; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>Baseball Score Keeper</h1>
+
+    <!-- スコアボード -->
+    <div class="scoreboard-container">
+        <table id="scoreTable">
+            <thead>
+                <tr>
+                    <th>TEAM</th>
+                    <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th>
+                    <th>6</th><th>7</th><th>8</th><th>9</th>
+                    <th>R</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- 先攻 -->
+                <tr id="row-visitor">
+                    <td><input type="text" class="team-name" value="VISITOR"></td>
+                    <td id="v-1"></td><td id="v-2"></td><td id="v-3"></td>
+                    <td id="v-4"></td><td id="v-5"></td><td id="v-6"></td>
+                    <td id="v-7"></td><td id="v-8"></td><td id="v-9"></td>
+                    <td id="v-total" style="font-weight:bold; font-size:1.2rem;">0</td>
+                </tr>
+                <!-- 後攻 -->
+                <tr id="row-home">
+                    <td><input type="text" class="team-name" value="HOME"></td>
+                    <td id="h-1"></td><td id="h-2"></td><td id="h-3"></td>
+                    <td id="h-4"></td><td id="h-5"></td><td id="h-6"></td>
+                    <td id="h-7"></td><td id="h-8"></td><td id="h-9"></td>
+                    <td id="h-total" style="font-weight:bold; font-size:1.2rem;">0</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- グラウンド表示 -->
+    <div class="field-display">
+        <!-- ベース位置：四角形の四隅 -->
+        <div class="base base-1st" id="base1"></div>
+        <div class="base base-2nd" id="base2"></div>
+        <div class="base base-3rd" id="base3"></div>
+        <!-- ホームベースを追加 -->
+        <div class="base base-home"></div>
+
+        <!-- 中央情報 -->
+        <div class="info-panel">
+            <div class="inning-text" id="inningDisplay">1回 表</div>
+            <div>OUT</div>
+            <div class="out-count">
+                <div class="lamp" id="out1"></div>
+                <div class="lamp" id="out2"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 操作ボタン -->
+    <div class="controls">
+        <button class="btn-hit" onclick="actionHit(1)">ヒット</button>
+        <button class="btn-base2" onclick="actionHit(2)">二塁打</button>
+        <button class="btn-base3" onclick="actionHit(3)">三塁打</button>
+        
+        <button class="btn-hr" onclick="actionHomeRun()">ホームラン</button>
+        
+        <button class="btn-walk" onclick="actionWalk()">四球</button>
+        <button class="btn-out" onclick="actionOut()">OUT</button>
+        <button style="background-color:#795548;" onclick="actionSacrifice()">犠飛/ゴロ進塁</button>
+        
+        <!-- 手動チェンジ用 -->
+        <button class="btn-gofwd" onclick="forceChangeInning()">チェンジ (強制)</button>
+    </div>
+
+    <button class="btn-reset" onclick="resetGame()">試合リセット</button>
+
+    <script>
+        // --- ゲームの状態管理 ---
+        let gameState = {
+            inning: 1,
+            isTop: true, // true:表(Visitor), false:裏(Home)
+            outs: 0,
+            bases: [false, false, false], // [1塁, 2塁, 3塁] の有無 (true/false)
+            scores: {
+                visitor: Array(9).fill(0), // 1~9回のスコア
+                home: Array(9).fill(0)
+            },
+            currentInningScore: 0 // 現在のイニングで入った点数（確定前の一時保持用ではないが、計算の利便性のため）
+        };
+
+        // --- 初期化 ---
+        function init() {
+            updateUI();
+        }
+
+        // --- アクション処理 ---
+
+        // ヒット処理 (basesHit: 1=Single, 2=Double, 3=Triple)
+        function actionHit(basesHit) {
+            let runs = 0;
+            let newBases = [false, false, false];
+
+            // 既存のランナーを進める
+            for (let i = 2; i >= 0; i--) { // 3塁から順に処理
+                if (gameState.bases[i]) {
+                    let nextBaseIndex = i + basesHit;
+                    if (nextBaseIndex >= 3) {
+                        runs++; // ホームイン
+                    } else {
+                        newBases[nextBaseIndex] = true;
+                    }
+                }
+            }
+
+            // 打者走者を進める
+            let batterIndex = basesHit - 1;
+            if (batterIndex >= 3) {
+                runs++;
+            } else {
+                newBases[batterIndex] = true;
+            }
+
+            gameState.bases = newBases;
+            addScore(runs);
+            updateUI();
+        }
+
+        // ホームラン処理
+        function actionHomeRun() {
+            let runs = 1; // 打者分
+            // ランナー分を加算
+            gameState.bases.forEach(runner => {
+                if (runner) runs++;
+            });
+            gameState.bases = [false, false, false]; // 走者一掃
+            addScore(runs);
+            updateUI();
+        }
+
+        // 四球処理 (押し出し計算)
+        function actionWalk() {
+            let runs = 0;
+            // 満塁の場合
+            if (gameState.bases[0] && gameState.bases[1] && gameState.bases[2]) {
+                runs = 1; // 押し出し
+            }
+            // 1,2塁の場合 -> 満塁へ
+            else if (gameState.bases[0] && gameState.bases[1]) {
+                gameState.bases[2] = true;
+            }
+            // 1塁、3塁の場合 -> 1,2,3塁へ (3塁はそのまま)
+            else if (gameState.bases[0] && gameState.bases[2]) {
+                gameState.bases[1] = true;
+            }
+            // 1塁のみ -> 1,2塁へ
+            else if (gameState.bases[0]) {
+                gameState.bases[1] = true;
+            }
+            // ランナーなし、または2塁/3塁のみなど空いている場合 -> 1塁へ
+            else {
+                gameState.bases[0] = true;
+            }
+
+            addScore(runs);
+            updateUI();
+        }
+
+        // アウト処理
+        function actionOut() {
+            gameState.outs++;
+            if (gameState.outs >= 3) {
+                alert("3アウト！チェンジです。");
+                changeInning();
+            }
+            updateUI();
+        }
+
+        // 犠牲フライ・進塁打 (1アウト増えるが、ランナーは全員1つ進むと仮定)
+        // ※野球のルールは複雑ですが、簡易的に「アウト+全員進塁」とします
+        function actionSacrifice() {
+            gameState.outs++;
+            if (gameState.outs >= 3) {
+                alert("3アウト！得点は入りません。");
+                changeInning();
+                return;
+            }
+
+            // ランナー進塁処理
+            let runs = 0;
+            let newBases = [false, false, false];
+            
+            // 3塁 -> ホーム
+            if (gameState.bases[2]) runs++;
+            // 2塁 -> 3塁
+            if (gameState.bases[1]) newBases[2] = true;
+            // 1塁 -> 2塁
+            if (gameState.bases[0]) newBases[1] = true;
+
+            gameState.bases = newBases;
+            addScore(runs);
+            updateUI();
+        }
+
+        // --- 内部ロジック ---
+
+        function addScore(runs) {
+            if (runs === 0) return;
+            
+            if (gameState.isTop) {
+                gameState.scores.visitor[gameState.inning - 1] += runs;
+            } else {
+                gameState.scores.home[gameState.inning - 1] += runs;
+            }
+        }
+
+        function changeInning() {
+            // チェンジ時のリセット
+            gameState.outs = 0;
+            gameState.bases = [false, false, false];
+
+            // 9回裏が終わったら終了など（簡易実装のため、9回以降はアラートのみ）
+            if (!gameState.isTop && gameState.inning === 9) {
+                updateUI();
+                alert("ゲームセット！");
+                return;
+            }
+
+            if (gameState.isTop) {
+                gameState.isTop = false; // 裏へ
+            } else {
+                gameState.isTop = true; // 表へ
+                gameState.inning++; // 次の回へ
+                if(gameState.inning > 9) {
+                    alert("9回終了。リセットしてください。");
+                    gameState.inning = 9; // 表示崩れ防止
+                }
+            }
+            updateUI();
+        }
+
+        function forceChangeInning() {
+            if(confirm("強制的に攻守交替しますか？(ランナーはリセットされます)")) {
+                changeInning();
+            }
+        }
+
+        function resetGame() {
+            if(!confirm("試合データを全てリセットしますか？")) return;
+            
+            gameState = {
+                inning: 1,
+                isTop: true,
+                outs: 0,
+                bases: [false, false, false],
+                scores: {
+                    visitor: Array(9).fill(0),
+                    home: Array(9).fill(0)
+                },
+                currentInningScore: 0
+            };
+            
+            // スコアボードのHTML表示をクリア（0にする）
+            for(let i=1; i<=9; i++) {
+                document.getElementById(`v-${i}`).innerText = "";
+                document.getElementById(`h-${i}`).innerText = "";
+            }
+            // チーム名はリセットしない方が親切かもですが、要望あればリセットに追加してください
+            updateUI();
+        }
+
+        // --- UI更新 ---
+        function updateUI() {
+            // 1. スコアボード更新
+            let vTotal = 0;
+            let hTotal = 0;
+            
+            gameState.scores.visitor.forEach((score, idx) => {
+                // まだ始まってないイニングは空欄、始まったら0または点数を表示
+                // 簡易的に「現在のイニング以前」を表示対象とする
+                if (idx + 1 <= gameState.inning) {
+                    // 表の場合
+                    if (idx + 1 < gameState.inning || (idx + 1 === gameState.inning && gameState.isTop)) {
+                        document.getElementById(`v-${idx+1}`).innerText = score;
+                    }
+                }
+                vTotal += score;
+            });
+
+            gameState.scores.home.forEach((score, idx) => {
+                if (idx + 1 <= gameState.inning) {
+                    // 裏に入っているか、過去のイニングなら表示
+                    if (idx + 1 < gameState.inning || (idx + 1 === gameState.inning && !gameState.isTop)) {
+                         document.getElementById(`h-${idx+1}`).innerText = score;
+                    }
+                }
+                hTotal += score;
+            });
+
+            document.getElementById('v-total').innerText = vTotal;
+            document.getElementById('h-total').innerText = hTotal;
+
+            // イニングハイライト
+            document.getElementById('row-visitor').style.backgroundColor = 'transparent';
+            document.getElementById('row-home').style.backgroundColor = 'transparent';
+            
+            if (gameState.isTop) {
+                document.getElementById('row-visitor').classList.add('active-inning');
+                document.getElementById('row-home').classList.remove('active-inning');
+            } else {
+                document.getElementById('row-home').classList.add('active-inning');
+                document.getElementById('row-visitor').classList.remove('active-inning');
+            }
+
+            // 2. グラウンド（ランナー）更新
+            // 配列: [1塁, 2塁, 3塁]
+            // ID: base1, base2, base3 (注意: HTMLクラス名は base-1st, base-2nd...)
+            const toggleBase = (id, isActive) => {
+                const el = document.getElementById(id);
+                if (isActive) el.classList.add('occupied');
+                else el.classList.remove('occupied');
+            };
+            
+            toggleBase('base1', gameState.bases[0]);
+            toggleBase('base2', gameState.bases[1]);
+            toggleBase('base3', gameState.bases[2]);
+
+            // 3. インフォメーション更新
+            const topBottomText = gameState.isTop ? "表" : "裏";
+            document.getElementById('inningDisplay').innerText = `${gameState.inning}回 ${topBottomText}`;
+
+            // アウトカウントランプ
+            const out1 = document.getElementById('out1');
+            const out2 = document.getElementById('out2');
+            
+            out1.classList.remove('active');
+            out2.classList.remove('active');
+
+            if (gameState.outs >= 1) out1.classList.add('active');
+            if (gameState.outs >= 2) out2.classList.add('active');
+        }
+
+        // 初期実行
+        init();
+
+    </script>
+</body>
+</html>
