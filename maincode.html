@@ -856,9 +856,12 @@
         // --- 共通処理 ---
         function addOut(num) {
             gameState.outs += num;
+            
+            // ★追加: アウトカウントが増えるたびに画面を更新する
+            updateUI();
+
             if (gameState.outs >= 3) {
                 gameState.outs = 3; 
-                updateUI();
                 
                 setTimeout(() => {
                     if (!gameState.isTop && gameState.inning === 9) {
