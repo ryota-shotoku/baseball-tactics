@@ -946,31 +946,39 @@
             resetGame();
         }
 
+        // --- 修正版 updateUI関数 ---
         function updateUI() {
             let vTotal = 0, hTotal = 0;
+
+            // Visitor（先攻）の表示更新
             gameState.scores.visitor.forEach((score, idx) => {
                 const el = document.getElementById(`v-${idx+1}`);
                 el.innerText = "";
                 
+                // ★修正箇所: 条件をシンプルにしました
+                // 「現在のイニング以下」なら常に表示します（裏になっても消えなくなります）
                 if (idx + 1 <= gameState.inning) {
-                    if (idx + 1 < gameState.inning || (idx + 1 === gameState.inning && gameState.isTop)) {
-                        el.innerText = score;
-                    }
+                    el.innerText = score;
                 }
+                
                 vTotal += score;
             });
+
+            // Home（後攻）の表示更新
             gameState.scores.home.forEach((score, idx) => {
                 const el = document.getElementById(`h-${idx+1}`);
                 el.innerText = "";
 
-                if (idx + 1 <= gameState.inning) {
-                    if (idx + 1 < gameState.inning || (idx + 1 === gameState.inning && !gameState.isTop)) {
-                         el.innerText = score;
-                    }
+                // Homeは「過去のイニング」か「現在が裏」の時だけ表示
+                // （表の攻撃中はまだ裏の点数を表示しない）
+                if (idx + 1 < gameState.inning || (idx + 1 === gameState.inning && !gameState.isTop)) {
+                     el.innerText = score;
                 }
+                
                 hTotal += score;
             });
 
+            // 合計点などの更新（ここは変更なし）
             document.getElementById('v-total').innerText = vTotal;
             document.getElementById('h-total').innerText = hTotal;
 
@@ -993,7 +1001,6 @@
 
             document.getElementById('inningDisplay').innerText = `${gameState.inning}回 ${gameState.isTop ? '表' : '裏'}`;
         }
-
         init();
     </script>
 </body>
